@@ -10,7 +10,7 @@ import weakref
 
 
 class User:
-    def __init__(self, bot, username):
+    def __init__(self, bot: "Bot", username):
         self.username = username
         self._raw = None
 
@@ -49,7 +49,7 @@ class User:
 
 
 class Post:
-    def __init__(self, bot, _raw):
+    def __init__(self, bot: "Bot", _raw):
         self.bot = bot
         self._raw = _raw
 
@@ -73,7 +73,7 @@ class Post:
 
 
 class CTX:
-    def __init__(self, post, bot):
+    def __init__(self, post, bot: "Bot"):
         self.message = Post(bot, post)
         self.user = self.message.user
         self.bot = bot

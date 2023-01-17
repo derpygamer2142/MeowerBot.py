@@ -172,6 +172,18 @@ class networking:
     def __handle_close__(self, *args, **kwargs):
         self.bot.run_cb("close", args=args, kwargs=kwargs)
 
+    def discord_support(self, packet):
+            if packet["val"]["u"] == "Discord" and ": " in packet["val"]["p"]:
+                split = packet["val"]["p"].split(": ")
+                packet["val"]["p"] = split[1]
+                packet["val"]["u"] = split[0]
+
+
+            if packet['val']['u'] == "Webhooks" and ": " in  packet["val"]["p"]:
+               packet["val"]["p"] = split[1]
+
+            return packet
+
     def __handle_packet__(self, packet):
         if packet["cmd"] == "statuscode":
 
@@ -184,14 +196,12 @@ class networking:
             self.bot.run_cb("ulist", self.bot.wss.statedata["ulist"]["usernames"])
 
         elif packet["cmd"] == "direct" and "post_origin" in packet["val"]:
-            if packet["val"]["u"] == "Discord" and ": " in packet["val"]["p"]:
-                split = packet["val"]["p"].split(": ")
-                packet["val"]["p"] = split[1]
-                packet["val"]["u"] = split[0]
+
 
             
             
             if "message" in self.bot.callbacks:
+                packet = self.discord_support(packet)
                 ctx = CTX(packet["val"], self)
 
                 try:
@@ -202,6 +212,8 @@ class networking:
                   self.bot.run_cb("error", args=(e))
 
             elif self.bot.commands: # Empty dicts eval as false
+                packet = self.discord_support(packet)
+
                 ctx = CTX(packet["val"], self)
                 if ctx.user.username == self.bot.username:
                     return
@@ -216,6 +228,8 @@ class networking:
 
                   self.bot.logger.error(traceback.format_exc())
                   self.bot.run_cb("error", args=(e))
+
+                  
             try:
               self.bot.run_cb("raw_message", args=(packet["val"]))
             except Exception as e:  # cq ignore
