@@ -18,6 +18,7 @@ from .context import CTX
 import time
 import logging
 
+from ._wss import networking
 
 class Bot:
     """
@@ -41,15 +42,14 @@ class Bot:
     def __init__(self, prefix=None):
         self.wss = cloudlink.CloudLink()
         self.callbacks = {}
+        self.networking = networking(self.wss)
 
         self.wss.callback(
             "on_packet", self._debug_fix
         )  # self._debug_fix catches all errors
         self.wss.callback("on_error", self.__handle_error__)  # handle uncought errors
         self.wss.callback("on_close", self.__handle_close__)  # Websocket disconnected
-        self.wss.callback(
-            "on_connect", self.__handle_on_connect__
-        )  # signing in and stuff like that
+
 
         # to be used in start
         self.username = None
@@ -57,13 +57,22 @@ class Bot:
         self.logger_in = False
 
         self.commands = {}
+
         self.prefix = prefix
         self._t_ping_thread = threading.Thread(target=self._t_ping, daemon=True)  # (:
         self.logger = logging.getLogger("MeowerBot")
         self.bad_exit = False
 
         self.cogs = {}
+        self.ctxcashe = {}
 
+
+        # to not do pass though funcs
+
+        self.send_msg = self.networking.send_msg #type: ignore
+        self.send_typing = self.networking.send_typing #type: ignore
+        self.enter_chat = self.networking.enter_chat #type: ignore
+        
     def run_cb(self, cbid, args=(), kwargs=None):  # cq: ignore
         if cbid not in self.callbacks:
             return  # ignore
@@ -86,7 +95,9 @@ class Bot:
         self.run_cb("error", args=(e))
 
     def _debug_fix(self, packet):
-        packet = json.loads(packet)  # Server bug workaround
+        if type(packet) is str:
+          packet = json.loads(packet)  # Server bug workaround
+        
 
         try:
             self.__handle_packet__(packet)
@@ -101,60 +112,6 @@ class Bot:
             self.logger.error(traceback.format_exc())
             self.run_cb("error", args=(e))
 
-    def __handle_on_connect__(self):
-        self.wss.sendPacket(
-            {
-                "cmd": "direct",
-                "val": {
-                    "cmd": "ip",
-                    "val": requests.get("https://api.meower.org/ip").text,
-                },
-                "listener": "__meowerbot__send_ip",
-            }
-        )
-
-        self.wss.sendPacket(
-            {
-                "cmd": "direct",
-                "val": {"cmd": "type", "val": "py"},
-            }
-        )
-        self.wss.sendPacket(
-            {
-                "cmd": "direct",
-                "val": "meower",
-                "listener": "__meowerbot__cloudlink_trust",
-            }
-        )
-
-    def command(self, aname=None, args=0):
-        def inner(func):
-            if aname is None:
-                name = func.__name__
-            else:
-                name = aname
-
-            cmd = AppCommand(func, name=name, args=args)
-
-            info = cmd.info()
-            info[cmd.name]["command"] = cmd
-
-            self.commands.update(info)
-
-            return func
-
-        return inner
-
-    def register_cog(self, cog):
-        info = cog.get_info()
-        self.cogs[cog.__class__.__name__] = cog
-        self.commands.update(info)
-
-    def deregister_cog(self, cogname):
-        for cmd in self.cogs[cogname].get_info().values():
-            del self.commands[cmd.name]
-        del self.cogs[cogname]
-
     def _handle_status(self, status, listener):
         if status == "I:112 | Trusted Access enabled":
             return
@@ -163,16 +120,7 @@ class Bot:
             if not status == "I:100 | OK":
                 raise RuntimeError("CloudLink Trust Failed")
 
-            self.wss.sendPacket(
-                {
-                    "cmd": "direct",
-                    "val": {
-                        "cmd": "authpswd",
-                        "val": {"username": self.username, "pswd": self._password},
-                    },
-                    "listener": "__meowerbot__login",
-                }
-            )
+            self.networking.login(self.username, self._password)
 
         elif listener == "__meowerbot__login":
             if status == "E:104 | Internal":
@@ -200,15 +148,6 @@ class Bot:
 
             raise RuntimeError("Post Failed to send")
 
-    def callback(self, callback, cbid=None):
-        """Connects a callback ID to a callback"""
-        if cbid is None:
-            cbid = callback.__name__
-
-        if cbid not in self.callbacks:
-            self.callbacks[cbid] = []
-        self.callbacks[cbid].append(callback)
-
     def __handle_close__(self, *args, **kwargs):
         self.run_cb("close", args=args, kwargs=kwargs)
 
@@ -229,12 +168,20 @@ class Bot:
                 packet["val"]["p"] = split[1]
                 packet["val"]["u"] = split[0]
 
-            ctx = CTX(packet["val"], self)
+            
+            
             if "message" in self.callbacks:
-                self.run_cb("message", args=(ctx.message,))
+                ctx = CTX(packet["val"], self)
 
-            else:
+                try:
+                   self.run_cb("message", args=(ctx.message,))
+                except Exception as e:  # cq ignore
 
+                  self.logger.error(traceback.format_exc())
+                  self.run_cb("error", args=(e))
+
+            elif self.commands: # Empty dicts eval as false
+                ctx = CTX(packet["val"], self)
                 if ctx.user.username == self.username:
                     return
                 if not ctx.message.data.startswith(self.prefix):
@@ -242,9 +189,18 @@ class Bot:
 
                 ctx.message.data = ctx.message.data.split(self.prefix, 1)[1]
 
-                self.run_command(ctx.message)
+                try:
+                  self.run_command(ctx.message)
+                except Exception as e:  # cq ignore
 
-            self.run_cb("raw_message", args=(packet["val"],))
+                  self.logger.error(traceback.format_exc())
+                  self.run_cb("error", args=(e))
+            try:
+              self.run_cb("raw_message", args=(packet["val"]))
+            except Exception as e:  # cq ignore
+
+                self.logger.error(traceback.format_exc())
+                self.run_cb("error", args=(e))
 
         elif packet["cmd"] == "direct":
             listener = packet.get("listener")
@@ -262,66 +218,42 @@ class Bot:
         except KeyError as e:
             self.run_cb("error", args=(e,))
 
-    def send_msg(self, msg, to="home"):
-        if to == "home":
-            self.wss.sendPacket(
-                {
-                    "cmd": "direct",
-                    "val": {"cmd": "post_home", "val": msg},
-                    "listener": "__meowerbot__send_message",
-                }
-            )
-        else:
-            self.wss.sendPacket(
-                {
-                    "cmd": "direct",
-                    "val": {"cmd": "post_chat", "val": {"chatid": to, "p": msg}},
-                    "listener": "__meowerbot__send_message",
-                }
-            )
+    def callback(self, callback, cbid=None):
+        """Connects a callback ID to a callback"""
+        if cbid is None:
+            cbid = callback.__name__
 
-    def send_typing(self, to="home"):
-        if  to == "home":
-            self.wss.sendPacket(
-                {
-                    "cmd": "direct",
-                    "val": {
-                        "cmd": "set_chat_state",
-                        "val": {
-                            "chatid": "livechat",
-                            "state": 101,
-                        },
-                    },
-                }
-            )
-        else:
-          self.wss.sendPacket(
-            {
-                "cmd": "direct",
-                "val": {
-                    "cmd": "set_chat_state",
-                    "val": {
-                        "chatid": to,
-                        "state": 100,
-                    },
-                },
-            }
-          )
-       
-    def enter_chat(self, chatid="livechat"):
-        self.wss.sendPacket(
-            {
-                "cmd": "direct",
-                "val": {
-                    "cmd": "set_chat_state",
-                    "val": {
-                        "chatid": chatid,
-                        "state": 1,
-                    },
-                },
-            }
-        )
+        if cbid not in self.callbacks:
+            self.callbacks[cbid] = []
+        self.callbacks[cbid].append(callback)
 
+    def command(self, name=None, args=0):
+        def inner(func):
+            if aname is None:
+                name = func.__name__
+            else:
+                name = aname
+
+            cmd = AppCommand(func, name=name, args=args)
+
+            info = cmd.info()
+            info[cmd.name]["command"] = cmd
+
+            self.commands.update(info)
+
+            return func
+
+        return inner
+
+    def register_cog(self, cog):
+        info = cog.get_info()
+        self.cogs[cog.__class__.__name__] = cog
+        self.commands.update(info)
+
+    def deregister_cog(self, cogname):
+        for cmd in self.cogs[cogname].get_info().values():
+            del self.commands[cmd.name]
+        del self.cogs[cogname]
 
     def run(self, username, password, server="wss://server.meower.org"):
         """

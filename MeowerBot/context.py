@@ -52,12 +52,19 @@ class Post:
     def __init__(self, bot, _raw):
         self.bot = bot
         self._raw = _raw
-        self.user = User(bot, self._raw["u"])
+
+        # optimising wss requests
+        if not self.bot.ctxcashe.get(self._raw["u"]):
+           self.user = User(bot, self._raw["u"])
+           self.bot.ctxcashe[self._raw['u']] = self.user
+        else:
+            self.user = self.bot.ctxcashe[self._raw["u"]]
 
         self.chat = self._raw["post_origin"]
         self.data = self._raw["p"]
         self._id = self._raw["post_id"]
         self.type = self._raw["type"]
+
         self.date = datetime.fromtimestamp(self._raw["t"]["e"])
         self.ctx: CTX = None  # type: ignore
 
@@ -71,6 +78,8 @@ class CTX:
         self.user = self.message.user
         self.bot = bot
         self.message.ctx = self  # type: ignore
+
+        
 
     def send_msg(self, msg):
         self.bot.send_msg(msg, to=self.message.chat)

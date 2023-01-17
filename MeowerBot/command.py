@@ -16,6 +16,13 @@ class AppCommand:
         self.arg_names = inspect.getfullargspec(func)[0]
         self.arg_types = func.__annotations__
 
+        if not 'ctx' in self.arg_names:
+            raise RuntimeError("Ctx Not In Command definition")
+
+        for key in ['self', 'ctx']:
+            if key in self.arg_names: self.arg_names.remove(key)
+            if key in self.arg_types: del self.arg_types[key]
+
     def __call__(self, *args):
         raise RuntimeError("AppCommand is not callable")
 
