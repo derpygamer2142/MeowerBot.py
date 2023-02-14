@@ -12,9 +12,9 @@ repository = "https://github.com/MeowerBots/MeowerBot.py"
 
 
 [tool.poetry.dependencies]
-python = "^3.8"
-requests = "^2.28.0"
-websocket-client = "*"
+python = "^3.10"
+websockets = "*"
+aiohttp = "^3.8.4"
 
 [tool.poetry.dev-dependencies]
 black = "^22.6.0"
