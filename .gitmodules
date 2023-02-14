@@ -1,0 +1,3 @@
+[submodule "MeowerBot/cloudlink"]
+	path = MeowerBot/cloudlink
+	url = https://github.com/MikeDev101/cloudlink.git
