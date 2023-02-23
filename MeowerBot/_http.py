@@ -9,7 +9,7 @@ class _http:
 
     def __init__(self, token: str) -> None:
         self.token = token
-        self.session = ClientSession(self.API_URL, headers={"Authorization": token})
+        self.session = ClientSession(base_url=self.API_URL, headers={"Authorization": token})
 
     async def send_feed_post(
         self, content: str, masquerade: Optional[Masquerade] = None, bridged=False

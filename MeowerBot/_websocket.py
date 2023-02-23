@@ -94,29 +94,46 @@ class _websocket:
 
     async def statuscode(self, packet):
         listener: str | None = packet.get("listener")
+        print("Got statuscode", packet)
 
-        if listener == "handshake":
+        if listener == "protocolset":
             resp: WaitReturn = await self.send_listener(
-                {"cmd": "authenticate", "token": self.token}
+                {"cmd": "authenticate", "val": self.token}
             )
 
             if not resp.ok:
                 raise InvalidTokenError(
                     f"The Token provided is invalid, {resp.statuscode.code}"
                 )
+            
+            self.logger.info("Authenticated")
+            await self.run_callback("auth", resp.packet)
 
     async def __packet__(self, packet: dict):
         self.logger.debug(f"Got Packet: {packet}")
 
         listener = packet.get("listener")
+        if packet["cmd"] == "statuscode":
+            try:
+                await self.statuscode(packet)
+            except Exception as e:
+                self.logger.error(f"Error in statuscode: {e}")
 
         if packet["cmd"] == "ulist":
-            asyncio.create_task(self.userlist(packet))
+            try:
+                await (self.userlist(packet))
+            except Exception as e:
+                self.logger.error(f"Error in ulist: {e}")
 
         if (
             listener in self._awaiting_packet
         ):  # THIS IS VERY DEPENDENT ON ORDER OF SENDING
-            asyncio.create_task(self.waiting_for(packet))
+            try:
+                await self.waiting_for(packet)
+            except Exception as e:
+                self.logger.error(f"Error in waiting_for: {e}")
+
+
 
     async def send_packet(self, packet):
         self.logger.debug(f"Sending Packet: {packet}")
@@ -126,6 +143,7 @@ class _websocket:
         if not packet.get("listener"):
             packet["listener"] = uuid.uuid4().hex
 
+    
         self._awaiting_packet[packet["listener"]] = {
             "event": asyncio.Event(),
             "ok": False,
@@ -153,7 +171,7 @@ class _websocket:
             self.client = client
 
             await self.send_packet(
-                {"cmd": "handshake", "val": "", "listener": "handshake"}
+                {"cmd": "handshake", "listener": "protocolset"}
             )
 
             self.logger.info(f"Connected to {ip}")
