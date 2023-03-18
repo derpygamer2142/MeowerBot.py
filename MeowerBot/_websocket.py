@@ -11,7 +11,7 @@ from websockets.legacy.client import connect, WebSocketClientProtocol
 from .errors import InvalidTokenError
 from .types import WaitReturn, Statuscode
 
-
+import traceback
 class _websocket:
     def __init__(self):
         self.client: WebSocketClientProtocol = None  # type: ignore
@@ -31,7 +31,13 @@ class _websocket:
         self.logger.debug(f"Running callback for ID {id}")
 
         coros = [cb(*args, **kwargs) for cb in self.cbs[id]]
-        asyncio.gather(*coros)
+        ret = await asyncio.gather(*coros)
+
+        # Check for any errors
+        for r in ret:
+            if isinstance(r, Exception):
+                self.logger.error(traceback.format_exc())
+                self.run_callback("error", r)
 
     async def waiting_for(self, packet: dict):
         listener = packet.get("listener")
@@ -97,9 +103,7 @@ class _websocket:
         print("Got statuscode", packet)
 
         if listener == "protocolset":
-            resp: WaitReturn = await self.send_listener(
-                {"cmd": "authenticate", "val": self.token}
-            )
+            resp: WaitReturn = await self.send_auth(self.token)
 
             if not resp.ok:
                 raise InvalidTokenError(
@@ -117,21 +121,24 @@ class _websocket:
             try:
                 await self.statuscode(packet)
             except Exception as e:
-                self.logger.error(f"Error in statuscode: {e}")
+                self.logger.error(traceback.format_exc())
+            
+
 
         if packet["cmd"] == "ulist":
             try:
                 await (self.userlist(packet))
             except Exception as e:
-                self.logger.error(f"Error in ulist: {e}")
+                self.logger.error(traceback.format_exc())
 
         if (
             listener in self._awaiting_packet
         ):  # THIS IS VERY DEPENDENT ON ORDER OF SENDING
+            self.logger.debug(f"Packet is waiting for {listener}: {packet['cmd']}")
             try:
                 await self.waiting_for(packet)
             except Exception as e:
-                self.logger.error(f"Error in waiting_for: {e}")
+                self.logger.error(traceback.format_exc())
 
 
 
@@ -139,31 +146,34 @@ class _websocket:
         self.logger.debug(f"Sending Packet: {packet}")
         await self.client.send(json.dumps(packet))
 
+    async def send_and_recv(self, packet: dict):
+    
+        await self.send_packet(packet)
+
+        packet = await self.client.recv()
+
+        data = json.loads(packet)
+
+        return data
+
     async def send_listener(self, packet: dict):
         if not packet.get("listener"):
             packet["listener"] = uuid.uuid4().hex
 
-    
-        self._awaiting_packet[packet["listener"]] = {
-            "event": asyncio.Event(),
-            "ok": False,
-            "packet": None,
-            "statuscode": {"code_id": 0, "code": ""},
-        }
+        raw_status  = await self.send_and_recv(packet)
 
-        await self.send_packet(packet)
-        await self._awaiting_packet[packet["listener"]][
-            "event"
-        ].wait()  # Waits for listener to return
+        if raw_status["cmd"] != "statuscode":
+            raise Exception("Expected statuscode, got", raw_status)
 
-        data = self._awaiting_packet[packet["listener"]]
-        del self._awaiting_packet[packet["listener"]]
+        status = Statuscode(raw_status["code_id"], raw_status["code"])
+        return WaitReturn(status.code_id == 100, packet, status)
 
-        return WaitReturn(
-            data["ok"],
-            data["packet"],
-            Statuscode(data["statuscode"]["code_id"], data["statuscode"]["code"]),
-        )
+
+
+
+    async def send_auth(self, token):
+        return await self.send_listener({"cmd": "authenticate", "val": token, "listener": "auth"})
+
 
     async def run(self, ip, token):
         self.token = token

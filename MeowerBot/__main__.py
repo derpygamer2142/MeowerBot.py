@@ -26,7 +26,7 @@ class CreateBot(Command):
         argument(
             "server",
             description="The server API",
-            default="https://api.beta.meower.org/",
+            
             optional=True
         )
     ]
@@ -35,6 +35,7 @@ class CreateBot(Command):
         username = self.argument("yourusername")
         password = self.argument("yourpassword")
         botname = self.argument("botname")
+        server = self.argument("server")
 
         if username is None:
             username = self.ask("What is your username?\n")
@@ -44,9 +45,14 @@ class CreateBot(Command):
         
         if botname is None:
             botname = self.ask("What is the name of the bot?\n")
+
+        if server is None:
+            server = self.ask("What is the server API?\n")
+
+
         
         self.line(f"Logging in as {username}...")
-        resp: requests.Response = requests.post(f"{self.argument('server')}v1/auth/password", json={"username": username, "password": password})
+        resp: requests.Response = requests.post(f"{server}v1/auth/password", json={"username": username, "password": password})
         if resp.status_code != 200:
             self.line_error(f"Failed to login: {resp.status_code}")
             self.line_error(resp.text)
@@ -56,7 +62,7 @@ class CreateBot(Command):
         self.line("Logged in successfully!")
         self.line(f"Creating application for bot {botname}...")
 
-        resp: requests.Response = requests.post(f"{self.argument('server')}v1/applications", headers={"Authorization": token}, json={"name": botname})
+        resp: requests.Response = requests.post(f"{server}v1/applications", headers={"Authorization": token}, json={"name": botname})
 
         if resp.status_code != 200:
             self.line_error(f"Failed to create application: {resp.status_code}")
@@ -67,7 +73,7 @@ class CreateBot(Command):
         self.line(f"Created application with ID {app_id}!")
 
         self.line("Creating bot...")
-        resp: requests.Response = requests.post(f"{self.argument('server')}v1/applications/{app_id}/bot", headers={"Authorization": token}, json={"username": botname})
+        resp: requests.Response = requests.post(f"{server}v1/applications/{app_id}/bot", headers={"Authorization": token}, json={"username": botname})
 
         if resp.status_code != 200:
             self.line_error(f"Failed to create bot: {resp.status_code}")

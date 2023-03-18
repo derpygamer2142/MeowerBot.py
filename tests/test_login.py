@@ -3,7 +3,7 @@ import asyncio
 
 runner = None
 
-async def on_ready():
+async def on_ready(A):
     if not runner:
         raise Exception("No runner")
     if not runner._http:
