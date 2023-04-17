@@ -13,5 +13,5 @@ This guide is for MeowerBot.py v2.5.0
 
 MeowerBot.py is a bot library for https://meower.org (open source at https://github.com/meower-media-co/)
 
-MeowerBot.py it self is located at https://github.com/meower-community/MeowerBot.py
+MeowerBot.py itself is located at https://github.com/meower-community/MeowerBot.py
 
