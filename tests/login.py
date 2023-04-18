@@ -22,6 +22,9 @@ def msg(msg, *args, **_):
 bot.callback(login, cbid="login")
 bot.callback(msg, cbid="message")
 
+#The env[''] parts can be replaced with strings, which would look like this: 
+#bot.run('username', 'password')
+#They're environment variables in this example so that no one steals your password and stuff if you post your bot on github.
 bot.run(env['username'], env['password'])
 
 
